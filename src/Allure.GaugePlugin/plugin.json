@@ -1,0 +1,24 @@
+{
+  "id": "allure-report",
+  "version": "1.0.1",
+  "name": "Allure Report",
+  "description": "Writes Gauge execution results as Allure result files",
+  "PostInstall": {
+    "windows": [],
+    "linux": [ "chmod", "+x", "Allure.GaugePlugin" ],
+    "darwin": [ "chmod", "+x", "Allure.GaugePlugin" ]
+  },
+  "command": {
+    "windows": [ "Allure.GaugePlugin.exe" ],
+    "linux": [ "./Allure.GaugePlugin" ],
+    "darwin": [ "./Allure.GaugePlugin" ]
+  },
+  "scope": [ "Execution" ],
+  "gaugeVersionSupport": {
+    "minimum": "1.6.30",
+    "maximum": ""
+  },
+  "capabilities": [
+    "grpc_support"
+  ]
+}

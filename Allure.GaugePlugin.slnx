@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Allure.GaugePlugin/Allure.GaugePlugin.csproj" />
+  </Folder>
+  <Folder Name="/test/">
+    <Project Path="test/Allure.GaugePlugin.Tests/Allure.GaugePlugin.Tests.csproj" />
+  </Folder>
+</Solution>
