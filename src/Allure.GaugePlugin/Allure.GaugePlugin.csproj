@@ -18,11 +18,20 @@
 
   <ItemGroup>
     <PackageReference Include="Google.Protobuf" Version="3.35.0" />
-    <PackageReference Include="Grpc.AspNetCore" Version="2.80.0" />
+    <PackageReference Include="Grpc.AspNetCore.Server" Version="2.80.0" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Protobuf Include="GrpcMessages\*.proto" ProtoRoot="GrpcMessages" GrpcServices="Both" />
+  <!--
+    The C# for Gauge's protocol is generated into GrpcMessages/Generated and committed, so regular builds don't
+    run protoc (the linux-arm64 protoc in Grpc.Tools crashes on GitHub's arm64 runners).
+    After updating the .proto files, regenerate with:  dotnet build src/Allure.GaugePlugin -p:GenerateProto=true
+  -->
+  <ItemGroup Condition="'$(GenerateProto)' == 'true'">
+    <PackageReference Include="Grpc.Tools" Version="2.80.0" PrivateAssets="all" />
+    <!-- protoc compiles its fresh outputs itself, so leave the committed copies out of the build. -->
+    <Compile Remove="GrpcMessages\Generated\**" />
+    <Protobuf Include="GrpcMessages\messages.proto;GrpcMessages\spec.proto" ProtoRoot="GrpcMessages" GrpcServices="None" OutputDir="GrpcMessages\Generated" />
+    <Protobuf Include="GrpcMessages\services.proto" ProtoRoot="GrpcMessages" GrpcServices="Server" OutputDir="GrpcMessages\Generated" />
   </ItemGroup>
 
   <ItemGroup>

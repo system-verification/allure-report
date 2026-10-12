@@ -44,10 +44,10 @@ jobs:
             build: bash build.sh linux-arm64
           - os: windows-latest
             platform: win-x64
-            build: build.bat win-x64
+            build: .\build.bat win-x64
           - os: windows-latest
             platform: win-arm64
-            build: build.bat win-arm64
+            build: .\build.bat win-arm64
           - os: macos-latest
             platform: osx-x64
             build: bash build.sh osx-x64

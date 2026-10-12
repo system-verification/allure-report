@@ -141,6 +141,16 @@ set AOT=false & build.bat   &:: without AOT (no C++ tools needed)
 
 The scripts print the `gauge install` command for the zip they create.
 
+### Gauge protocol
+
+`src/Allure.GaugePlugin/GrpcMessages` holds Gauge's `.proto` files (from
+[gauge-proto](https://github.com/getgauge/gauge-proto)), and the C# generated from them is committed in
+`GrpcMessages/Generated`, so regular builds don't need `protoc`. After updating the `.proto` files, regenerate with:
+
+```bash
+dotnet build src/Allure.GaugePlugin -p:GenerateProto=true
+```
+
 ### Project layout
 
 | Path | Contents |
