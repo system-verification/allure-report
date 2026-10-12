@@ -5,6 +5,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <PublishAot>true</PublishAot>
+    <!-- No static files are served; stops publish emitting an empty staticwebassets manifest. -->
+    <StaticWebAssetsEnabled>false</StaticWebAssetsEnabled>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)'=='Release'">
