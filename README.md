@@ -36,6 +36,47 @@ executable, so no .NET runtime is needed on the test machine.
    allure generate reports/allure-results --open
    ```
 
+## GitHub Actions
+
+Two actions in this repository install the plugin and publish the report in a workflow:
+
+```yaml
+- name: Install Gauge
+  run: curl -SsL https://downloads.gauge.org/stable | sh   # plus your language runner
+
+- uses: system-verification/allure-report/setup@v1
+
+- name: Run specs
+  run: gauge run specs
+
+- uses: system-verification/allure-report/report@v1
+  if: always()
+```
+
+`setup` downloads the plugin release for the runner's platform, installs it and adds `allure-report` to
+`manifest.json` (for that run only), so the plugin doesn't have to be installed locally. Gauge must be installed first.
+
+| Input | Default | Description |
+|-------|---------|-------------|
+| `project-dir` | `.` | The Gauge project directory |
+| `version` | `latest` | The plugin release to install, e.g. `v1.2.0` |
+| `github-token` | `github.token` | Token used to download the release |
+
+`report` generates the report with the Allure CLI (needs Node.js, which GitHub's runners have), uploads it as an
+artifact and adds a summary table to the workflow run's page.
+
+| Input | Default | Description |
+|-------|---------|-------------|
+| `project-dir` | `.` | The Gauge project directory |
+| `results-dir` | `reports/allure-results` | The Allure results, relative to `project-dir` |
+| `report-dir` | `reports/allure-report` | Where to generate the report, relative to `project-dir` |
+| `single-file` | `true` | Generate one `index.html`, which opens straight from a downloaded artifact |
+| `allure-version` | `3` | The Allure CLI version |
+| `artifact-name` | `AllureReport` | The artifact name; empty skips the upload |
+| `report-url` | – | Where the report is hosted (e.g. GitHub Pages); adds a link to the summary |
+
+To host the report, publish `report-dir` in a later step, e.g. to GitHub Pages.
+
 ## Configuration
 
 Set these as environment variables or in `env/default/default.properties`. Relative paths are resolved against the
@@ -190,7 +231,7 @@ dotnet build src/Allure.GaugePlugin -p:GenerateProto=true
 2. Push a matching tag: `git tag v1.2.0 && git push origin v1.2.0`.
 
 The release workflow checks the tag against `plugin.json`, runs the tests, builds every platform and attaches the zips
-to the GitHub release.
+to the GitHub release. It also points the major version tag (e.g. `v1`), which workflows use to reference the GitHub Actions, at the new release.
 
 ## Uninstall
 

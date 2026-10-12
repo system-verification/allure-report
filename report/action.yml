@@ -1,0 +1,76 @@
+name: "Gauge Allure Report: report"
+description: "Generate an Allure report from the plugin's results, upload it and add a summary to the workflow run"
+author: "System Verification"
+branding:
+  icon: "check-circle"
+  color: "green"
+
+# Run with `if: always()`, so failed tests get a report too.
+inputs:
+  project-dir:
+    description: "The Gauge project directory"
+    required: false
+    default: "."
+  results-dir:
+    description: "The Allure results directory, relative to project-dir"
+    required: false
+    default: "reports/allure-results"
+  report-dir:
+    description: "Where to generate the report, relative to project-dir"
+    required: false
+    default: "reports/allure-report"
+  single-file:
+    description: "Generate the report as one index.html, which opens straight from a downloaded artifact"
+    required: false
+    default: "true"
+  allure-version:
+    description: "The Allure CLI version (npm package 'allure')"
+    required: false
+    default: "3"
+  artifact-name:
+    description: "Name of the uploaded report artifact; empty skips the upload"
+    required: false
+    default: "AllureReport"
+  report-url:
+    description: "URL where the report is hosted (e.g. GitHub Pages); adds a link to the summary"
+    required: false
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - name: Generate the Allure report
+      shell: bash
+      working-directory: ${{ inputs.project-dir }}
+      env:
+        RESULTS_DIR: ${{ inputs.results-dir }}
+        REPORT_DIR: ${{ inputs.report-dir }}
+        SINGLE_FILE: ${{ inputs.single-file }}
+        ALLURE_VERSION: ${{ inputs.allure-version }}
+      run: |
+        CONFIG=()
+        if [ "$SINGLE_FILE" = true ]; then
+          echo '{"plugins": {"awesome": {"options": {"singleFile": true}}}}' > "$RUNNER_TEMP/allurerc.json"
+          CONFIG=(-c "$RUNNER_TEMP/allurerc.json")
+        fi
+        npx -y "allure@$ALLURE_VERSION" generate "$RESULTS_DIR" "${CONFIG[@]}" -o "$REPORT_DIR"
+
+    - name: Upload the Allure report
+      if: inputs.artifact-name != ''
+      uses: actions/upload-artifact@v7
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ inputs.project-dir }}/${{ inputs.report-dir }}${{ inputs.single-file == 'true' && '/index.html' || '' }}
+
+    - name: Add the summary to the workflow run
+      shell: bash
+      working-directory: ${{ inputs.project-dir }}
+      env:
+        SUMMARY: ${{ inputs.report-dir }}/summary.json
+        REPORT_URL: ${{ inputs.report-url }}
+      run: |
+        if [ ! -f "$SUMMARY" ]; then
+          echo "::notice::No Allure summary found at $SUMMARY."
+          exit 0
+        fi
+        jq -r --arg url "$REPORT_URL" -f "$GITHUB_ACTION_PATH/summary.jq" "$SUMMARY" >> "$GITHUB_STEP_SUMMARY"

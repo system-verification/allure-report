@@ -4,7 +4,8 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      # Full versions only: the moving major tag (v1) that the GitHub Actions use must not start a release.
+      - 'v*.*.*'
 
 permissions:
   contents: write
@@ -85,6 +86,18 @@ jobs:
           gh release view "$TAG" --repo "$REPO" > /dev/null 2>&1 \
             || gh release create "$TAG" --repo "$REPO" --title "$TAG" --generate-notes
           gh release upload "$TAG" ./**/*.zip --clobber --repo "$REPO"
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Point the major tag (e.g. v1) at this release, so `uses: system-verification/allure-report/setup@v1` gets it.
+      - name: Move Major Version Tag
+        run: |
+          MAJOR="${TAG%%.*}"
+          gh api -X PATCH "repos/$REPO/git/refs/tags/$MAJOR" -f sha="$GITHUB_SHA" -F force=true \
+            || gh api -X POST "repos/$REPO/git/refs" -f ref="refs/tags/$MAJOR" -f sha="$GITHUB_SHA"
         shell: bash
         env:
           TAG: ${{ github.ref_name }}

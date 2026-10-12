@@ -1,0 +1,51 @@
+name: "Gauge Allure Report: setup"
+description: "Install the Gauge allure-report plugin for this runner and enable it in the project's manifest.json"
+author: "System Verification"
+branding:
+  icon: "download"
+  color: "green"
+
+# Gauge must be installed before this action runs.
+inputs:
+  project-dir:
+    description: "The Gauge project directory, containing manifest.json"
+    required: false
+    default: "."
+  version:
+    description: "The plugin release to install, e.g. v1.2.0, or 'latest'"
+    required: false
+    default: "latest"
+  github-token:
+    description: "Token used to download the release"
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install the allure-report plugin
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        VERSION: ${{ inputs.version }}
+      run: |
+        case "$RUNNER_OS" in
+          Linux) OS=linux ;;
+          macOS) OS=osx ;;
+          Windows) OS=win ;;
+          *) echo "::error::Unsupported runner OS: $RUNNER_OS"; exit 1 ;;
+        esac
+        ARCH=$([ "$RUNNER_ARCH" = ARM64 ] && echo arm64 || echo x64)
+        DIR="$RUNNER_TEMP/allure-report-plugin"
+        rm -rf "$DIR"
+        TAG=$([ "$VERSION" = latest ] && echo "" || echo "$VERSION")
+        gh release download $TAG --repo system-verification/allure-report --pattern "*-$OS-$ARCH.zip" --dir "$DIR"
+        gauge install allure-report --file "$DIR"/allure-report-*-$OS-$ARCH.zip
+
+    # Enable the plugin for this run, so it doesn't have to be in the committed manifest.json.
+    - name: Enable the plugin in manifest.json
+      shell: bash
+      working-directory: ${{ inputs.project-dir }}
+      run: |
+        jq 'if (.Plugins | index("allure-report")) then . else .Plugins += ["allure-report"] end' manifest.json > manifest.json.tmp
+        mv manifest.json.tmp manifest.json
