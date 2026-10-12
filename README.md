@@ -92,12 +92,12 @@ one file until it expires.
   with:
     aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
     aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-    aws-region: eu-north-1
+    aws-region: ${{ vars.AWS_REGION }}
 
 - uses: system-verification/allure-report/report@v1
   if: always()
   with:
-    aws-s3-bucket: my-allure-reports
+    aws-s3-bucket: ${{ vars.ALLURE_S3_BUCKET }}
 ```
 
 Setting up AWS:
@@ -118,6 +118,18 @@ Setting up AWS:
    ```
 
    `s3:GetObject` is needed because a presigned URL acts with the permissions of whoever signed it.
+3. In the repository, add these under Settings → Secrets and variables → Actions (the names used in the example
+   above):
+
+   | Name | Kind | Value |
+   |------|------|-------|
+   | `AWS_ACCESS_KEY_ID` | Secret | The IAM user's access key ID (`AKIA…`) |
+   | `AWS_SECRET_ACCESS_KEY` | Secret | The access key's secret, shown only once when the key is created |
+   | `AWS_REGION` | Variable | The bucket's region code, e.g. `eu-north-1` (not the name, such as "Stockholm") |
+   | `ALLURE_S3_BUCKET` | Variable | The bucket name |
+
+   Variables are read with `vars.` and secrets with `secrets.`, so adding a variable as a secret (or the other way
+   round) leaves it empty in the workflow. The bucket name and region aren't sensitive.
 
 A presigned link can't outlive the credentials it was signed with. An IAM user's access key gives the full 7 days;
 temporary credentials, such as from an OIDC role (`role-to-assume`), end the link when their session ends (at most 12
