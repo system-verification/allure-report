@@ -73,9 +73,55 @@ artifact and adds a summary table to the workflow run's page.
 | `single-file` | `true` | Generate one `index.html`, which opens straight from a downloaded artifact |
 | `allure-version` | `3` | The Allure CLI version |
 | `artifact-name` | `AllureReport` | The artifact name; empty skips the upload |
-| `report-url` | – | Where the report is hosted (e.g. GitHub Pages); adds a link to the summary |
+| `github-pages-url` | – | Where you publish `report-dir` yourself (e.g. GitHub Pages, in a later step); adds a link to the summary. `report-url` is accepted as a deprecated alias. |
+| `aws-s3-bucket` | – | Upload the report to this private S3 bucket and link to it with a presigned URL (see below) |
+| `aws-s3-prefix` | `<owner>/<repo>/<run id>-<attempt>` | The folder in the bucket |
+| `aws-s3-link-expiry` | `604800` | Seconds the presigned link is valid (at most 7 days) |
 
-To host the report, publish `report-dir` in a later step, e.g. to GitHub Pages.
+The action outputs the link it put in the summary as `report-link`, e.g. to post it to a chat.
+
+### Hosting the report in S3
+
+GitHub Pages sites are public, even for private repositories. To keep reports private, `report` can upload the
+single-file report to a private S3 bucket and link to it with a presigned URL: a link that gives read access to that
+one file until it expires.
+
+```yaml
+- uses: aws-actions/configure-aws-credentials@v4
+  if: always()
+  with:
+    aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+    aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    aws-region: eu-north-1
+
+- uses: system-verification/allure-report/report@v1
+  if: always()
+  with:
+    aws-s3-bucket: my-allure-reports
+```
+
+Setting up AWS:
+
+1. Create a bucket with Block Public Access on (the default). Add a lifecycle rule that deletes objects after e.g. 30
+   days, so old reports are cleaned up.
+2. Create an IAM user with this policy, and an access key for it. Store the key as repository secrets.
+
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [{
+       "Effect": "Allow",
+       "Action": ["s3:PutObject", "s3:GetObject"],
+       "Resource": "arn:aws:s3:::my-allure-reports/*"
+     }]
+   }
+   ```
+
+   `s3:GetObject` is needed because a presigned URL acts with the permissions of whoever signed it.
+
+A presigned link can't outlive the credentials it was signed with. An IAM user's access key gives the full 7 days;
+temporary credentials, such as from an OIDC role (`role-to-assume`), end the link when their session ends (at most 12
+hours). After a link has expired, the report is still in the workflow run's artifact.
 
 ## Configuration
 

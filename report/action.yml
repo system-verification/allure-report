@@ -31,10 +31,31 @@ inputs:
     description: "Name of the uploaded report artifact; empty skips the upload"
     required: false
     default: "AllureReport"
-  report-url:
-    description: "URL where the report is hosted (e.g. GitHub Pages); adds a link to the summary"
+  github-pages-url:
+    description: "URL where you publish report-dir on GitHub Pages (or another host) yourself; adds a link to the summary"
     required: false
     default: ""
+  report-url:
+    description: "Deprecated: use github-pages-url"
+    required: false
+    default: ""
+  aws-s3-bucket:
+    description: "Upload the single-file report to this S3 bucket and link to it in the summary with a presigned URL. Log in to AWS first, e.g. with aws-actions/configure-aws-credentials"
+    required: false
+    default: ""
+  aws-s3-prefix:
+    description: "The folder in the bucket"
+    required: false
+    default: "${{ github.repository }}/${{ github.run_id }}-${{ github.run_attempt }}"
+  aws-s3-link-expiry:
+    description: "Seconds the presigned link is valid; at most 604800 (7 days), and never longer than the AWS credentials it is signed with"
+    required: false
+    default: "604800"
+
+outputs:
+  report-link:
+    description: "The link to the report put in the summary (the presigned S3 URL or github-pages-url); empty if none"
+    value: ${{ steps.link.outputs.url }}
 
 runs:
   using: "composite"
@@ -62,15 +83,61 @@ runs:
         name: ${{ inputs.artifact-name }}
         path: ${{ inputs.project-dir }}/${{ inputs.report-dir }}${{ inputs.single-file == 'true' && '/index.html' || '' }}
 
+    # A presigned URL gives read access to the one object, so only the single-file report can be served this way.
+    - name: Upload the Allure report to S3
+      id: s3
+      if: inputs.aws-s3-bucket != ''
+      shell: bash
+      working-directory: ${{ inputs.project-dir }}
+      env:
+        REPORT_DIR: ${{ inputs.report-dir }}
+        SINGLE_FILE: ${{ inputs.single-file }}
+        TARGET: s3://${{ inputs.aws-s3-bucket }}/${{ inputs.aws-s3-prefix }}/index.html
+        EXPIRY: ${{ inputs.aws-s3-link-expiry }}
+      run: |
+        if [ "$SINGLE_FILE" != true ]; then
+          echo "::error::aws-s3-bucket needs single-file: true (a presigned link covers a single file)."
+          exit 1
+        fi
+        # The CLI signs longer links without complaint, but S3 rejects them when opened.
+        if [ "$EXPIRY" -gt 604800 ]; then
+          echo "::error::aws-s3-link-expiry is at most 604800 seconds (7 days)."
+          exit 1
+        fi
+        aws s3 cp "$REPORT_DIR/index.html" "$TARGET" --content-type "text/html; charset=utf-8" --only-show-errors
+        echo "url=$(aws s3 presign "$TARGET" --expires-in "$EXPIRY")" >> "$GITHUB_OUTPUT"
+        echo "Uploaded the report to $TARGET"
+
+    - name: Resolve the report link
+      id: link
+      shell: bash
+      env:
+        S3_URL: ${{ steps.s3.outputs.url }}
+        PAGES_URL: ${{ inputs.github-pages-url }}
+        DEPRECATED_URL: ${{ inputs.report-url }}
+        EXPIRY: ${{ inputs.aws-s3-link-expiry }}
+      run: |
+        if [ -n "$DEPRECATED_URL" ]; then
+          echo "::warning::The report-url input is deprecated; use github-pages-url."
+        fi
+        if [ -n "$S3_URL" ]; then
+          echo "url=$S3_URL" >> "$GITHUB_OUTPUT"
+          echo "expires=$EXPIRY" >> "$GITHUB_OUTPUT"
+        else
+          echo "url=${PAGES_URL:-$DEPRECATED_URL}" >> "$GITHUB_OUTPUT"
+          echo "expires=" >> "$GITHUB_OUTPUT"
+        fi
+
     - name: Add the summary to the workflow run
       shell: bash
       working-directory: ${{ inputs.project-dir }}
       env:
         SUMMARY: ${{ inputs.report-dir }}/summary.json
-        REPORT_URL: ${{ inputs.report-url }}
+        REPORT_URL: ${{ steps.link.outputs.url }}
+        EXPIRES: ${{ steps.link.outputs.expires }}
       run: |
         if [ ! -f "$SUMMARY" ]; then
           echo "::notice::No Allure summary found at $SUMMARY."
           exit 0
         fi
-        jq -r --arg url "$REPORT_URL" -f "$GITHUB_ACTION_PATH/summary.jq" "$SUMMARY" >> "$GITHUB_STEP_SUMMARY"
+        jq -r --arg url "$REPORT_URL" --arg expires "$EXPIRES" -f "$GITHUB_ACTION_PATH/summary.jq" "$SUMMARY" >> "$GITHUB_STEP_SUMMARY"
