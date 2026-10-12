@@ -40,7 +40,7 @@ inputs:
     required: false
     default: ""
   aws-s3-bucket:
-    description: "Upload the single-file report to this S3 bucket and link to it in the summary with a presigned URL. Log in to AWS first, e.g. with aws-actions/configure-aws-credentials"
+    description: "Upload the single-file report to this S3 bucket and link to it in the summary with a presigned URL. Pass the AWS credentials as env (AWS_ACCESS_KEY_ID from a variable, not a secret; see the README)"
     required: false
     default: ""
   aws-s3-prefix:

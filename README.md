@@ -87,24 +87,21 @@ single-file report to a private S3 bucket and link to it with a presigned URL: a
 one file until it expires.
 
 ```yaml
-- uses: aws-actions/configure-aws-credentials@v4
-  if: always()
-  with:
-    aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-    aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-    aws-region: ${{ vars.AWS_REGION }}
-
 - uses: system-verification/allure-report/report@v1
   if: always()
+  env:
+    AWS_ACCESS_KEY_ID: ${{ vars.AWS_ACCESS_KEY_ID }}
+    AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    AWS_REGION: ${{ vars.AWS_REGION }}
   with:
     aws-s3-bucket: ${{ vars.ALLURE_S3_BUCKET }}
 ```
 
 Setting up AWS:
 
-1. Create a bucket with Block Public Access on (the default). Add a lifecycle rule that deletes objects after e.g. 30
-   days, so old reports are cleaned up.
-2. Create an IAM user with this policy, and an access key for it. Store the key as repository secrets.
+1. Create a bucket with Block Public Access on (the default). Add a lifecycle rule that deletes objects after 8 days:
+   the links stop working after 7 days anyway, and the report remains in the workflow run's artifact.
+2. Create an IAM user with this policy, and an access key for it.
 
    ```json
    {
@@ -123,17 +120,19 @@ Setting up AWS:
 
    | Name | Kind | Value |
    |------|------|-------|
-   | `AWS_ACCESS_KEY_ID` | Secret | The IAM user's access key ID (`AKIA…`) |
+   | `AWS_ACCESS_KEY_ID` | **Variable** | The IAM user's access key ID (`AKIA…`) |
    | `AWS_SECRET_ACCESS_KEY` | Secret | The access key's secret, shown only once when the key is created |
    | `AWS_REGION` | Variable | The bucket's region code, e.g. `eu-north-1` (not the name, such as "Stockholm") |
    | `ALLURE_S3_BUCKET` | Variable | The bucket name |
 
    Variables are read with `vars.` and secrets with `secrets.`, so adding a variable as a secret (or the other way
-   round) leaves it empty in the workflow. The bucket name and region aren't sensitive.
+   round) leaves it empty in the workflow.
 
-A presigned link can't outlive the credentials it was signed with. An IAM user's access key gives the full 7 days;
-temporary credentials, such as from an OIDC role (`role-to-assume`), end the link when their session ends (at most 12
-hours). After a link has expired, the report is still in the workflow run's artifact.
+**Why the access key ID must not be a secret:** a presigned link contains the access key ID, and GitHub replaces the
+value of every secret in a run's output with `***`, also inside the link in the summary. Opening it then fails with
+`InvalidAccessKeyId`. The access key ID only identifies the key (it's in every presigned link by design); only the
+secret access key is confidential. For the same reason, don't log in with `aws-actions/configure-aws-credentials`: it
+marks the access key ID as a secret, also for temporary credentials from an OIDC role.
 
 ## Configuration
 
