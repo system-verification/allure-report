@@ -16,10 +16,11 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace Allure.GaugePlugin.Results;
 
-internal sealed class AllureResultWriter(AllureOptions options, TimeProvider timeProvider)
+internal sealed partial class AllureResultWriter(AllureOptions options, TimeProvider timeProvider)
 {
     private const string InterruptedMessage = "Execution ended before this scenario finished";
 
@@ -297,7 +298,7 @@ internal sealed class AllureResultWriter(AllureOptions options, TimeProvider tim
             foreach (var screenshot in executionResult.ScreenshotFiles)
                 step.Attachments = step.Attachments.With(CopyScreenshot(screenshot, "screenshot"));
             step.Attachments = step.Attachments.With(CopyScreenshot(executionResult.FailureScreenshotFile, "failure screenshot"));
-            step.Attachments = step.Attachments.With(WriteTextAttachment("messages", executionResult.Message));
+            step.Attachments = AddMessages(step.Attachments, "messages", executionResult.Message);
         }
 
         if (protoStep is not null)
@@ -557,7 +558,7 @@ internal sealed class AllureResultWriter(AllureOptions options, TimeProvider tim
             Stop = now,
         };
 
-        testResult.Attachments = testResult.Attachments.With(WriteTextAttachment("messages", messages));
+        testResult.Attachments = AddMessages(testResult.Attachments, "messages", messages);
         foreach (var screenshot in screenshots)
             testResult.Attachments = testResult.Attachments.With(CopyScreenshot(screenshot, "screenshot"));
         testResult.Attachments = testResult.Attachments.With(CopyScreenshot(failure.FailureScreenshotFile, "failure screenshot"));
@@ -568,7 +569,7 @@ internal sealed class AllureResultWriter(AllureOptions options, TimeProvider tim
     private void AddHookArtifacts(AllureTestResult target, string hookName, IEnumerable<string> messages,
         IEnumerable<string> screenshots, ProtoHookFailure? failure)
     {
-        target.Attachments = target.Attachments.With(WriteTextAttachment($"{hookName} messages", messages));
+        target.Attachments = AddMessages(target.Attachments, $"{hookName} messages", messages);
         foreach (var screenshot in screenshots)
             target.Attachments = target.Attachments.With(CopyScreenshot(screenshot, $"{hookName} screenshot"));
         target.Attachments = target.Attachments.With(CopyScreenshot(failure?.FailureScreenshotFile, $"{hookName} failure screenshot"));
@@ -577,7 +578,7 @@ internal sealed class AllureResultWriter(AllureOptions options, TimeProvider tim
     private void AddHookArtifacts(AllureStep target, string hookName, IEnumerable<string> messages,
         IEnumerable<string> screenshots, ProtoHookFailure? failure)
     {
-        target.Attachments = target.Attachments.With(WriteTextAttachment($"{hookName} messages", messages));
+        target.Attachments = AddMessages(target.Attachments, $"{hookName} messages", messages);
         foreach (var screenshot in screenshots)
             target.Attachments = target.Attachments.With(CopyScreenshot(screenshot, $"{hookName} screenshot"));
         target.Attachments = target.Attachments.With(CopyScreenshot(failure?.FailureScreenshotFile, $"{hookName} failure screenshot"));
@@ -586,26 +587,69 @@ internal sealed class AllureResultWriter(AllureOptions options, TimeProvider tim
     private static AllureStatusDetails Details(ProtoHookFailure failure)
         => new() { Message = failure.ErrorMessage, Trace = failure.StackTrace };
 
+    /// <summary>
+    /// Attaches Gauge messages as one text attachment. A message containing a file marker,
+    /// <c>&lt;!-- allure-attachment path="..." name="..." type="..." --&gt;</c>, attaches that file instead and is left
+    /// out of the text. Being an HTML comment, the marker is invisible in Gauge's HTML report, so the same message can
+    /// also carry a link for that report.
+    /// </summary>
+    private List<AllureAttachment>? AddMessages(List<AllureAttachment>? attachments, string name, IEnumerable<string> messages)
+    {
+        var text = new List<string>();
+        var files = new List<AllureAttachment?>();
+        foreach (var message in messages)
+        {
+            var markers = AttachmentMarker().Matches(message);
+            if (markers.Count == 0)
+            {
+                text.Add(message);
+                continue;
+            }
+
+            foreach (Match marker in markers)
+            {
+                var attributes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                foreach (Match attribute in MarkerAttribute().Matches(marker.Groups["attributes"].Value))
+                    attributes.TryAdd(attribute.Groups["key"].Value, attribute.Groups["value"].Value);
+                if (attributes.TryGetValue("path", out var path) && path.Length > 0)
+                    files.Add(CopyFile(Path.Combine(options.ProjectRoot, path),
+                        attributes.GetValueOrDefault("name") is { Length: > 0 } fileName ? fileName : Path.GetFileName(path),
+                        attributes.GetValueOrDefault("type") is { Length: > 0 } type ? type : null));
+            }
+        }
+
+        attachments = attachments.With(WriteTextAttachment(name, text));
+        foreach (var file in files)
+            attachments = attachments.With(file);
+        return attachments;
+    }
+
+    [GeneratedRegex(@"<!--\s*allure-attachment\b(?<attributes>.*?)-->", RegexOptions.Singleline)]
+    private static partial Regex AttachmentMarker();
+
+    [GeneratedRegex(@"(?<key>\w+)\s*=\s*""(?<value>[^""]*)""")]
+    private static partial Regex MarkerAttribute();
+
     private AllureAttachment? CopyScreenshot(string? screenshotFile, string name)
+        => string.IsNullOrEmpty(screenshotFile) ? null : CopyFile(Path.Combine(options.ScreenshotsDirectory, screenshotFile), name, null);
+
+    /// <summary>Copies a file into the results directory as an attachment; the type defaults to one from its extension.</summary>
+    private AllureAttachment? CopyFile(string sourcePath, string name, string? type)
     {
         try
         {
-            if (string.IsNullOrEmpty(screenshotFile))
-                return null;
-
-            var sourcePath = Path.Combine(options.ScreenshotsDirectory, screenshotFile);
             if (!File.Exists(sourcePath))
                 return null;
 
-            var extension = Path.GetExtension(screenshotFile);
+            var extension = Path.GetExtension(sourcePath);
             var attachmentName = $"{Guid.NewGuid()}-attachment{extension}";
             File.Copy(sourcePath, Path.Combine(_outputDir, attachmentName), true);
 
-            return new AllureAttachment { Name = name, Source = attachmentName, Type = GetMimeType(extension) };
+            return new AllureAttachment { Name = name, Source = attachmentName, Type = type ?? GetMimeType(extension) };
         }
         catch (IOException)
         {
-            // A missing screenshot must never fail the report.
+            // A missing or locked file must never fail the report.
             return null;
         }
     }
@@ -739,6 +783,14 @@ internal sealed class AllureResultWriter(AllureOptions options, TimeProvider tim
         ".bmp" => "image/bmp",
         ".webp" => "image/webp",
         ".svg" => "image/svg+xml",
+        ".webm" => "video/webm",
+        ".mp4" => "video/mp4",
+        ".txt" or ".log" => "text/plain",
+        ".csv" => "text/csv",
+        ".html" or ".htm" => "text/html",
+        ".json" => "application/json",
+        ".xml" => "application/xml",
+        ".zip" => "application/zip",
         _ => "application/octet-stream"
     };
 

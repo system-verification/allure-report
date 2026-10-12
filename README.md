@@ -66,6 +66,7 @@ ALLURE_LINK_ISSUE_PATTERN = https://jira.example.com/browse/{}
 | Steps and concepts | Nested steps; steps that never ran after a failure are shown as skipped |
 | Screenshots | Image attachments |
 | `Gauge.writeMessage` output, hook messages | Text attachments |
+| Messages with an `allure-attachment` marker | File attachments (see [Attaching files](#attaching-files)) |
 | Table parameters | CSV attachments |
 | Failed step | `failed` |
 | Failed scenario or step hook | `broken` |
@@ -93,6 +94,30 @@ Tags: epic:Accounts, owner:alice
 ## Valid login
 Tags: severity:critical, issue:ABC-123, smoke
 ```
+
+### Attaching files
+
+Gauge can only attach screenshots, so other files (Playwright traces, videos, logs, …) are attached through a marker
+in a message. Write a message containing:
+
+```html
+<!-- allure-attachment path="reports/login-trace.zip" name="Trace" type="application/vnd.allure.playwright-trace" -->
+```
+
+| Attribute | Required | Description |
+|-----------|----------|-------------|
+| `path` | yes | The file to attach. Relative paths are resolved against the Gauge project root. |
+| `name` | no | The attachment name. Defaults to the file name. |
+| `type` | no | The content type. Defaults to one based on the extension (e.g. `.webm` → `video/webm`, `.zip` → `application/zip`). |
+
+The plugin copies the file into the results when the step, hook or scenario finishes, so the file must exist by then.
+A message containing a marker is left out of the messages text attachment. The marker is an HTML comment, so it's
+invisible in Gauge's HTML report: one message can carry both a link for the HTML report and the file for Allure.
+Missing files are skipped.
+
+Use the type `application/vnd.allure.playwright-trace` for Playwright traces: Allure opens them in the Playwright
+trace viewer, and lists traces attached to the test itself (e.g. from an after-scenario hook) in a "Playwright Trace"
+section at the top of the test.
 
 ## History
 

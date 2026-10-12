@@ -393,6 +393,53 @@ public sealed class AllureResultWriterTests
     }
 
     [Fact]
+    public void AttachmentMarkers_AttachFilesAndAreLeftOutOfMessages()
+    {
+        using var f = new WriterFixture();
+        Directory.CreateDirectory(Path.Combine(f.Root, "reports"));
+        File.WriteAllText(Path.Combine(f.Root, "reports", "login-trace.zip"), "zip");
+        var video = Path.Combine(f.Root, "reports", "login-video.webm");
+        File.WriteAllText(video, "webm");
+        f.StartLaunch();
+        f.StartScenario();
+        var scenario = Scenario(ExecutionStatus.Failed);
+        scenario.PostHookMessages.Add("closing browser");
+        scenario.PostHookMessages.Add("<a href=\"x\">[ Trace ]</a><!-- allure-attachment path=\"reports/login-trace.zip\" name=\"Trace\" type=\"application/vnd.allure.playwright-trace\" -->");
+        scenario.PostHookMessages.Add($"<!-- allure-attachment path=\"{video}\" -->");
+        scenario.PostHookMessages.Add("<!-- allure-attachment path=\"reports/missing.zip\" -->");
+        f.FinishScenario(ScenarioItem(scenario));
+
+        var attachments = f.SingleResult().Attachments!;
+        Assert.Equal(3, attachments.Count);
+        var messages = Assert.Single(attachments, a => a.Type == "text/plain");
+        Assert.Equal("closing browser", File.ReadAllText(Path.Combine(f.Options.ResultsDirectory, messages.Source)));
+        var trace = Assert.Single(attachments, a => a.Name == "Trace");
+        Assert.Equal("application/vnd.allure.playwright-trace", trace.Type);
+        Assert.Equal("zip", File.ReadAllText(Path.Combine(f.Options.ResultsDirectory, trace.Source)));
+        var videoAttachment = Assert.Single(attachments, a => a.Name == "login-video.webm");
+        Assert.Equal("video/webm", videoAttachment.Type);
+        Assert.EndsWith(".webm", videoAttachment.Source);
+    }
+
+    [Fact]
+    public void AttachmentMarkers_InStepMessages_AttachToTheStep()
+    {
+        using var f = new WriterFixture();
+        File.WriteAllText(Path.Combine(f.Root, "data.json"), "{}");
+        f.StartLaunch();
+        f.StartScenario();
+        f.StartStep("Export");
+        var result = Passed();
+        result.ExecutionResult.Message.Add("<!-- allure-attachment path=\"data.json\" -->");
+        f.FinishStep("Export", result);
+        f.FinishScenario(ScenarioItem(Scenario()));
+
+        var attachment = Assert.Single(Assert.Single(f.SingleResult().Steps!).Attachments!);
+        Assert.Equal("data.json", attachment.Name);
+        Assert.Equal("application/json", attachment.Type);
+    }
+
+    [Fact]
     public void Cleanup_RemovesPreviousRunButKeepsHistory_AndCanBeDisabled()
     {
         using var f = new WriterFixture();
