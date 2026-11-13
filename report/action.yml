@@ -51,8 +51,8 @@ inputs:
     description: "Seconds the presigned link is valid; at most 604800 (7 days), and never longer than the AWS credentials it is signed with"
     required: false
     default: "604800"
-  aws-s3-attachment-limit-mb:
-    description: "With aws-s3-bucket: attachments larger than this (e.g. Playwright traces) are uploaded to S3 next to the report and linked from it instead of embedded, which keeps the report small enough to open; 0 embeds them all"
+  aws-s3-link-attachments-over-mb:
+    description: "With aws-s3-bucket: attachments over this many MB (e.g. Playwright traces) are uploaded to S3 next to the report and linked from it instead of embedded, which keeps the report small enough to open; 0 embeds them all"
     required: false
     default: "20"
 
@@ -83,13 +83,13 @@ runs:
         fi
 
     - name: Move large attachments to S3
-      if: inputs.aws-s3-bucket != '' && inputs.aws-s3-attachment-limit-mb != '0'
+      if: inputs.aws-s3-bucket != '' && inputs.aws-s3-link-attachments-over-mb != '0'
       shell: bash
       working-directory: ${{ inputs.project-dir }}
       env:
         RESULTS_DIR: ${{ inputs.results-dir }}
         TARGET: s3://${{ inputs.aws-s3-bucket }}/${{ inputs.aws-s3-prefix }}/attachments
-        LIMIT_MB: ${{ inputs.aws-s3-attachment-limit-mb }}
+        LIMIT_MB: ${{ inputs.aws-s3-link-attachments-over-mb }}
         EXPIRY: ${{ inputs.aws-s3-link-expiry }}
       run: bash "$GITHUB_ACTION_PATH/externalize-attachments.sh"
 
