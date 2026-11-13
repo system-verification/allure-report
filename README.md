@@ -77,6 +77,7 @@ artifact and adds a summary table to the workflow run's page.
 | `aws-s3-bucket` | – | Upload the report to this private S3 bucket and link to it with a presigned URL (see below) |
 | `aws-s3-prefix` | `<owner>/<repo>/<run id>-<attempt>` | The folder in the bucket |
 | `aws-s3-link-expiry` | `604800` | Seconds the presigned link is valid (at most 7 days) |
+| `aws-s3-attachment-limit-mb` | `20` | Attachments larger than this are uploaded to S3 and linked instead of embedded (see below); `0` embeds them all |
 
 The action outputs the link it put in the summary as `report-link`, e.g. to post it to a chat.
 
@@ -133,6 +134,26 @@ value of every secret in a run's output with `***`, also inside the link in the 
 `InvalidAccessKeyId`. The access key ID only identifies the key (it's in every presigned link by design); only the
 secret access key is confidential. For the same reason, don't log in with `aws-actions/configure-aws-credentials`: it
 marks the access key ID as a secret, also for temporary credentials from an OIDC role.
+
+**Large attachments:** the single-file report embeds every attachment, and browsers can't open a report of several
+hundred MB (the page stays blank). Playwright traces easily get that big. So attachments larger than
+`aws-s3-attachment-limit-mb` are uploaded to `<aws-s3-prefix>/attachments/` in the bucket instead, and the report links
+to them with presigned URLs, valid as long as the report link: as links at the top of the test, and as a small text
+attachment in the file's place. The report artifact then has the links but not the files themselves.
+
+For a Playwright trace there is also a link that opens it in the [Playwright trace viewer](https://trace.playwright.dev).
+That page fetches the trace from S3 in your browser, which the bucket only allows with this CORS rule (Permissions →
+Cross-origin resource sharing):
+
+```json
+[{
+  "AllowedOrigins": ["https://trace.playwright.dev"],
+  "AllowedMethods": ["GET"],
+  "AllowedHeaders": ["*"]
+}]
+```
+
+Without it, download the trace and open it with `npx playwright show-trace <file>`.
 
 ## Configuration
 

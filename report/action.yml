@@ -51,6 +51,10 @@ inputs:
     description: "Seconds the presigned link is valid; at most 604800 (7 days), and never longer than the AWS credentials it is signed with"
     required: false
     default: "604800"
+  aws-s3-attachment-limit-mb:
+    description: "With aws-s3-bucket: attachments larger than this (e.g. Playwright traces) are uploaded to S3 next to the report and linked from it instead of embedded, which keeps the report small enough to open; 0 embeds them all"
+    required: false
+    default: "20"
 
 outputs:
   report-link:
@@ -60,6 +64,35 @@ outputs:
 runs:
   using: "composite"
   steps:
+    # Checked first, so nothing is uploaded when they're wrong.
+    - name: Check the S3 inputs
+      if: inputs.aws-s3-bucket != ''
+      shell: bash
+      env:
+        SINGLE_FILE: ${{ inputs.single-file }}
+        EXPIRY: ${{ inputs.aws-s3-link-expiry }}
+      run: |
+        if [ "$SINGLE_FILE" != true ]; then
+          echo "::error::aws-s3-bucket needs single-file: true (a presigned link covers a single file)."
+          exit 1
+        fi
+        # The CLI signs longer links without complaint, but S3 rejects them when opened.
+        if [ "$EXPIRY" -gt 604800 ]; then
+          echo "::error::aws-s3-link-expiry is at most 604800 seconds (7 days)."
+          exit 1
+        fi
+
+    - name: Move large attachments to S3
+      if: inputs.aws-s3-bucket != '' && inputs.aws-s3-attachment-limit-mb != '0'
+      shell: bash
+      working-directory: ${{ inputs.project-dir }}
+      env:
+        RESULTS_DIR: ${{ inputs.results-dir }}
+        TARGET: s3://${{ inputs.aws-s3-bucket }}/${{ inputs.aws-s3-prefix }}/attachments
+        LIMIT_MB: ${{ inputs.aws-s3-attachment-limit-mb }}
+        EXPIRY: ${{ inputs.aws-s3-link-expiry }}
+      run: bash "$GITHUB_ACTION_PATH/externalize-attachments.sh"
+
     - name: Generate the Allure report
       shell: bash
       working-directory: ${{ inputs.project-dir }}
@@ -83,7 +116,8 @@ runs:
         name: ${{ inputs.artifact-name }}
         path: ${{ inputs.project-dir }}/${{ inputs.report-dir }}${{ inputs.single-file == 'true' && '/index.html' || '' }}
 
-    # A presigned URL gives read access to the one object, so only the single-file report can be served this way.
+    # A presigned URL gives read access to the one object, so only the single-file report can be served this way
+    # (large attachments got their own presigned links above).
     - name: Upload the Allure report to S3
       id: s3
       if: inputs.aws-s3-bucket != ''
@@ -91,19 +125,9 @@ runs:
       working-directory: ${{ inputs.project-dir }}
       env:
         REPORT_DIR: ${{ inputs.report-dir }}
-        SINGLE_FILE: ${{ inputs.single-file }}
         TARGET: s3://${{ inputs.aws-s3-bucket }}/${{ inputs.aws-s3-prefix }}/index.html
         EXPIRY: ${{ inputs.aws-s3-link-expiry }}
       run: |
-        if [ "$SINGLE_FILE" != true ]; then
-          echo "::error::aws-s3-bucket needs single-file: true (a presigned link covers a single file)."
-          exit 1
-        fi
-        # The CLI signs longer links without complaint, but S3 rejects them when opened.
-        if [ "$EXPIRY" -gt 604800 ]; then
-          echo "::error::aws-s3-link-expiry is at most 604800 seconds (7 days)."
-          exit 1
-        fi
         aws s3 cp "$REPORT_DIR/index.html" "$TARGET" --content-type "text/html; charset=utf-8" --only-show-errors
         echo "url=$(aws s3 presign "$TARGET" --expires-in "$EXPIRY")" >> "$GITHUB_OUTPUT"
         echo "Uploaded the report to $TARGET"
